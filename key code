@@ -1,0 +1,195 @@
+import pandas as pd
+import jieba
+import jieba.analyse as analyse
+from keras.preprocessing.text import Tokenizer
+from keras.preprocessing import sequence
+from keras.models import Sequential
+from keras.layers import Dense, Dropout, Activation, Flatten, MaxPool1D, Conv1D, TimeDistributed
+from keras.layers.embeddings import Embedding
+from keras.utils import multi_gpu_model
+from keras.models import load_model
+from keras import regularizers  # 正则化
+import matplotlib.pyplot as plt
+import numpy as np
+from keras.utils import plot_model
+from sklearn.model_selection import train_test_split
+from keras.utils.np_utils import to_categorical
+from sklearn.preprocessing import LabelEncoder
+from keras.layers import BatchNormalization
+import pickle
+from sklearn.model_selection import train_test_split
+
+
+#建立语料库
+#sentences中包括经过分词的文本和label，这里是二分类所以是0和1，形式比如：['今天 真 开心' 0]
+x, y = zip(*sentences)
+text_Seq_Padding = sequence.pad_sequences(text_Seq, maxlen=19)#maxlen是文本的阶段长度
+x_train, x_test, y_train, y_test = train_test_split(text_Seq_Padding, y, random_state=1234)
+'===================================================================================================='
+
+#CNN文本分类模型：
+#参考了这个帖子#https://github.com/ChileWang0228/DeepLearningTutorial
+model = Sequential()#顺序模型
+#设置词向量形式
+# https://blog.csdn.net/lrt366/article/details/88719207?depth_1-utm_source=distribute.pc_relevant.none-task-blog-BlogCommendFromBaidu-3&utm_source=distribute.pc_relevant.none-task-blog-BlogCommendFromBaidu-3
+model.add(Embedding(output_dim = 200,  # 词向量的维度
+                    input_dim = 3000,  # Size of the vocabulary 字典大小（注意要和字典size一样）
+                    input_length = 19  # 每个数字列表的长度
+                   ))
+# vec=model.predict(a)
+
+#https://blog.csdn.net/VeritasCN/article/details/90050584
+model.add(Conv1D(256,  # 输出大小（卷积中滤波器的输出数量）
+                 3,   # 卷积核大小（ 指明 1D 卷积窗口的长度）
+                 padding='same', #"same" 表示填充输入以使输出具有与原始输入相同的长度
+                 activation='relu'))
+model.add(MaxPool1D(3,3,padding='same'))
+model.add(Conv1D(256, 3, padding='same', activation='relu'))
+model.add(MaxPool1D(3,3,padding='same'))
+model.add(Flatten())
+model.add(Dropout(0.2))
+model.add(BatchNormalization()) # (批)规范化层
+model.add(Dense(256,activation='relu'))
+model.add(Dropout(0.2))
+model.add(Dense(units = 10,
+                activation = "softmax"))
+
+batch_size = 256
+epochs = 20
+
+# 单GPU版本
+model.summary()  # 可视化模型
+model.compile(optimizer = "adam",
+                 loss = "sparse_categorical_crossentropy",
+                 metrics=['accuracy', precision, recall, fmeasure])
+history = model.fit(
+          x_train, 
+          y_train,
+          batch_size=batch_size,
+          epochs=epochs,
+          validation_split = 0.2
+          # 训练集的20%用作验证集
+        )
+        
+# list all data in history
+print(history.history.keys())
+
+# summarize history for accuracy
+plt.plot(history.history['accuracy'])
+plt.plot(history.history['val_accuracy'])
+plt.title('model accuracy')
+plt.ylabel('accuracy')
+plt.xlabel('epoch')
+plt.legend(['train', 'test'], loc='upper left')
+plt.show()
+
+'===================================================================================================='
+
+#双向LSTM文本分类模型
+import pandas as pd
+import warnings
+import re
+import matplotlib.pyplot as plt
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import stopwords
+from keras.preprocessing.text import Tokenizer
+from keras.preprocessing.sequence import pad_sequences
+from keras.layers import Dense, LSTM, Embedding, Dropout, Conv1D, MaxPooling1D, Bidirectional
+from keras.models import Sequential
+
+model = Sequential()
+model.add(Embedding(3000, 200))
+model.add(Bidirectional(LSTM(32, recurrent_dropout=0.1)))
+model.add(Dropout(0.2))
+model.add(Dense(128))
+model.add(Dropout(0.2))
+model.add(Dense(1, activation='sigmoid'))
+model.summary()
+model.compile(optimizer = "adam",
+                 loss = "binary_crossentropy",
+                 metrics=['accuracy', precision, recall, fmeasure])
+
+history=model.fit(x_train, y_train, batch_size=256, epochs=5, validation_split=0.2)
+
+plt.plot(history.history['accuracy'])
+plt.plot(history.history['val_accuracy'])
+plt.title('model accuracy')
+plt.ylabel('accuracy')
+plt.xlabel('epoch')
+plt.legend(['train', 'test'], loc='upper left')
+plt.show()
+
+
+# summarize history for loss
+plt.plot(history.history['loss'])
+plt.plot(history.history['val_loss'])
+plt.title('model loss')
+plt.ylabel('loss')
+plt.xlabel('epoch')
+plt.legend(['train', 'test'], loc='upper left')
+plt.show()
+
+'===================================================================================================='
+
+
+#双向LSTM模型拼接CNN模型，其实就是一直在add
+
+model = Sequential()
+model.add(Embedding(max_features, embedding_size, input_length=maxlen))
+# model.add(Dropout(0.2))
+model.add(Bidirectional(LSTM(256,return_sequences = True)))#256比128好
+
+#https://blog.csdn.net/VeritasCN/article/details/90050584
+model.add(Conv1D(128,  # 输出大小（卷积中滤波器的输出数量）
+                 3,   # 卷积核大小（ 指明 1D 卷积窗口的长度）
+                 padding='same', #"same" 表示填充输入以使输出具有与原始输入相同的长度
+                 activation='relu'))
+model.add(MaxPool1D(3,3,padding='same'))
+model.add(Conv1D(8, 3, padding='same', activation='relu'))
+# model.add(MaxPool1D(3,3,padding='same'))
+model.add(Flatten())
+model.add(Dropout(0.2))
+model.add(BatchNormalization()) # (批)规范化层
+model.add(Dense(256,activation='relu'))
+model.add(Dropout(0.2))
+model.add(Dense(units = 5,
+                activation = "softmax"))
+
+# 单GPU版本
+model.summary()  # 可视化模型
+
+model.compile(optimizer = "adam",
+                 loss = "sparse_categorical_crossentropy",
+                 metrics=['accuracy', precision, recall, fmeasure])
+
+history = model.fit(
+          x_train, 
+          y_train,
+          batch_size=256,
+          epochs=10,
+          validation_split = 0.2
+          # 训练集的20%用作验证集
+        )
+
+# list all data in history
+print(history.history.keys())
+
+# summarize history for accuracy
+plt.plot(history.history['accuracy'])
+plt.plot(history.history['val_accuracy'])
+plt.title('model accuracy')
+plt.ylabel('accuracy')
+plt.xlabel('epoch')
+plt.legend(['train', 'test'], loc='upper left')
+plt.show()
+
+# summarize history for loss
+plt.plot(history.history['loss'])
+plt.plot(history.history['val_loss'])
+plt.title('model loss')
+plt.ylabel('loss')
+plt.xlabel('epoch')
+plt.legend(['train', 'test'], loc='upper left')
+plt.show()
+
+
